@@ -28,6 +28,15 @@ struct SettingsPage: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            VStack(alignment: .leading, spacing: 4) {
+                row(model.texts.privateMode) {
+                    Toggle(model.texts.privateMode, isOn: $model.privateMode).labelsHidden()
+                }
+                Text(model.texts.privateModeNote)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if model.bannersEnabled, model.notifier.permission == .denied {
                 Text(model.texts.bannersDenied)
                     .font(.system(size: 11))
@@ -52,6 +61,21 @@ struct SettingsPage: View {
                 ))
                 .labelsHidden()
             }
+            if model.statusLineLooksMissing {
+                VStack(alignment: .leading, spacing: 4) {
+                    row(model.texts.limitsSetting) {
+                        if !model.statusLineRequested {
+                            Button(model.texts.showLimits) { model.requestStatusLine() }
+                                .buttonStyle(ActionButtonStyle())
+                        }
+                    }
+                    Text(model.statusLineRequested ? model.texts.statusLinePending : model.texts.showLimitsNote)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
             row(model.texts.languageSetting) {
                 Picker(model.texts.languageSetting, selection: $model.language) {
                     ForEach(Language.allCases) { language in
@@ -62,8 +86,8 @@ struct SettingsPage: View {
                 .fixedSize()
             }
 
-            if let loginError = model.loginError {
-                Text(loginError)
+            if let detail = model.loginErrorDetail {
+                Text(model.texts.loginError(detail))
                     .font(.system(size: 11))
                     .foregroundStyle(Palette.over)
             }
@@ -72,7 +96,7 @@ struct SettingsPage: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(model.texts.lastHookEvent(model.lastEventAt, now: model.now))
-                Text(model.texts.limitsUpdated(model.summary.lastObservedAt, now: model.now))
+                Text(model.texts.limitsUpdated(model.lastObservedAt, now: model.now))
             }
             .font(.system(size: 11))
             .foregroundStyle(.secondary)

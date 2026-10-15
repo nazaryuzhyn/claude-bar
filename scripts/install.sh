@@ -9,16 +9,18 @@ command -v jq >/dev/null || { echo "jq is required: brew install jq" >&2; exit 1
 root="$HOME/Library/Application Support/ClaudeBar"
 bin="$root/bin"
 
-# The hook runs on every tool call, so a copy that fails its tests is never installed.
-echo "==> Testing the hook and the status line bridge"
+# The scripts run on every tool call and status line refresh, and configure.sh edits
+# settings.json, so copies that fail their tests are never installed.
+echo "==> Testing the scripts Claude Code runs and the installer"
 ./test-hooks.sh | tail -n 1
+./test-install.sh | tail -n 1
 
 echo "==> Building ClaudeBar.app"
 ./bundle.sh
 
 echo "==> Installing the scripts Claude Code runs"
 mkdir -p -m 700 "$root" "$bin"
-install -m 700 hook.sh statusline-bridge.sh statusline.sh "$bin/"
+install -m 700 hook.sh statusline-bridge.sh statusline.sh configure.sh "$bin/"
 echo "Installed to $bin"
 
 echo "==> Connecting Claude Code"

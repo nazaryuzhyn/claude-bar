@@ -29,12 +29,28 @@ public enum WindowStatus: Equatable, Sendable {
     case resetPassed(at: Date)
 }
 
-public struct LimitsSummary: Equatable, Sendable {
+/// One Claude Code profile's limits. Profiles (`CLAUDE_CONFIG_DIR`) may be different accounts,
+/// so each gets its own summary and their figures never mix.
+public struct LimitsSummary: Equatable, Sendable, Identifiable {
     public let fiveHour: WindowStatus?
     public let sevenDay: WindowStatus?
     /// Sum of today's share of every session's estimated cost, in USD.
     public let costToday: Double
     public let lastObservedAt: Date?
+    /// The profile's `CLAUDE_CONFIG_DIR`, `nil` for the default one.
+    public var configDir: String? = nil
+    /// The profile's name, set only when there is more than one profile to tell apart.
+    public var profile: String? = nil
+    /// Claude Code has answered in at least one of the profile's sessions. Limits arrive only
+    /// after that, so before it their absence says nothing about the plan.
+    public var answered = false
+
+    public var id: String { configDir ?? "" }
+
+    /// Claude Code answered but sent no limits: the plan does not report them.
+    public var planReportsNoLimits: Bool {
+        fiveHour == nil && sevenDay == nil && answered
+    }
 
     public static let empty = LimitsSummary(fiveHour: nil, sevenDay: nil, costToday: 0, lastObservedAt: nil)
 
@@ -47,7 +63,20 @@ public struct LimitsSummary: Equatable, Sendable {
 }
 
 public enum LimitsAggregator {
-    /// Limits are shared by the whole account, so a reading from any session is valid.
+    /// One summary per profile, the default one first; a profile is named only when there are several.
+    public static func summarizeProfiles(_ records: [LimitsRecord], now: Date, timeZone: TimeZone = .current) -> [LimitsSummary] {
+        let groups = Dictionary(grouping: records, by: \.configDir)
+        let configDirs = groups.keys.sorted { ($0 ?? "") < ($1 ?? "") }
+        return configDirs.map { configDir in
+            var summary = summarize(groups[configDir] ?? [], now: now, timeZone: timeZone)
+            summary.configDir = configDir
+            summary.profile = groups.count > 1 ? profileName(configDir) : nil
+            return summary
+        }
+    }
+
+    /// Limits are shared by an account, so a reading from any of its sessions is valid.
+    /// Expects the records of one profile.
     public static func summarize(_ records: [LimitsRecord], now: Date, timeZone: TimeZone = .current) -> LimitsSummary {
         let today = dayString(now, timeZone: timeZone)
         let costToday = records
@@ -58,8 +87,26 @@ public enum LimitsAggregator {
             fiveHour: status(of: .fiveHour, in: records, now: now),
             sevenDay: status(of: .sevenDay, in: records, now: now),
             costToday: costToday,
-            lastObservedAt: records.map(\.observedAt).max()
+            lastObservedAt: records.map(\.observedAt).max(),
+            answered: records.contains { $0.answered == true }
         )
+    }
+
+    /// The most urgent figure across profiles: the window with the largest used share.
+    public static func menuBarFigure(of summaries: [LimitsSummary]) -> MenuBarFigure? {
+        summaries
+            .compactMap { summary in summary.menuBarReading.map { (summary, $0) } }
+            .max { $0.1.usedPercentage < $1.1.usedPercentage }
+            .flatMap { summary, _ in summary.menuBarFigure }
+    }
+
+    /// The folder's own name, as people tell profiles apart; the default one is `.claude`. A
+    /// `.claude` folder elsewhere keeps its parent, so it does not read as the default one.
+    static func profileName(_ configDir: String?) -> String {
+        guard let configDir, !configDir.isEmpty else { return ".claude" }
+        let url = URL(fileURLWithPath: configDir)
+        guard url.lastPathComponent == ".claude" else { return url.lastPathComponent }
+        return "\(url.deletingLastPathComponent().lastPathComponent)/.claude"
     }
 
     /// The bridge writes `day` with `date +%F`, the local calendar day.

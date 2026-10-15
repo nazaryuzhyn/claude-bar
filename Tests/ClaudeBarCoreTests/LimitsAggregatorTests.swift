@@ -59,6 +59,58 @@ struct LimitsAggregatorTests {
         #expect(low.menuBarReading?.usedPercentage == 0)
     }
 
+    @Test func eachProfileGetsItsOwnSummary() {
+        let reset = noon.adding(hours: 2)
+        let records = [
+            limits("personal", observedAt: noon.adding(minutes: -1), fiveHour: (90, reset), cost: 7),
+            limits("work", observedAt: noon, fiveHour: (20, noon.adding(hours: 3)), cost: 2, configDir: "/Users/me/.claude-work"),
+        ]
+
+        let summaries = LimitsAggregator.summarizeProfiles(records, now: noon, timeZone: kyiv)
+
+        #expect(summaries.map(\.profile) == [".claude", ".claude-work"])
+        #expect(summaries.map(\.configDir) == [nil, "/Users/me/.claude-work"])
+        #expect(summaries.map { $0.menuBarReading?.usedPercentage } == [90, 20])
+        #expect(summaries.map(\.costToday) == [7, 2])
+    }
+
+    @Test func theMenuBarShowsTheMostUrgentProfileAndNamesIt() {
+        let records = [
+            limits("personal", observedAt: noon, fiveHour: (30, noon.adding(hours: 2))),
+            limits("work", observedAt: noon.adding(minutes: -5), fiveHour: (85, noon.adding(hours: 3)), configDir: "/Users/me/.claude-work"),
+        ]
+
+        let figure = LimitsAggregator.menuBarFigure(of: LimitsAggregator.summarizeProfiles(records, now: noon, timeZone: kyiv))
+
+        #expect(figure?.percent == "85%")
+        #expect(figure?.profile == ".claude-work")
+    }
+
+    @Test func oneProfileIsNotNamed() {
+        let records = [limits("a", fiveHour: (30, noon.adding(hours: 2)), configDir: "/Users/me/.claude-work")]
+
+        let summaries = LimitsAggregator.summarizeProfiles(records, now: noon, timeZone: kyiv)
+
+        #expect(summaries.map(\.profile) == [nil])
+        #expect(LimitsAggregator.menuBarFigure(of: summaries)?.profile == nil)
+    }
+
+    @Test func aClaudeFolderElsewhereKeepsItsParentInTheName() {
+        #expect(LimitsAggregator.profileName(nil) == ".claude")
+        #expect(LimitsAggregator.profileName("/Users/me/work/.claude") == "work/.claude")
+        #expect(LimitsAggregator.profileName("/Users/me/.claude-work") == ".claude-work")
+    }
+
+    @Test func aPlanWithoutLimitsIsKnownOnlyAfterClaudeAnswered() {
+        let beforeTheFirstReply = LimitsAggregator.summarize([limits("api", cost: 0)], now: noon, timeZone: kyiv)
+        let afterIt = LimitsAggregator.summarize([limits("api", cost: 3.5, answered: true)], now: noon, timeZone: kyiv)
+
+        #expect(!beforeTheFirstReply.planReportsNoLimits)
+        #expect(afterIt.planReportsNoLimits)
+        #expect(afterIt.costToday == 3.5)
+        #expect(!LimitsSummary.empty.planReportsNoLimits)
+    }
+
     @Test func passedResetIsReportedInsteadOfAStalePercentage() {
         let records = [limits("a", observedAt: noon.adding(hours: -3), fiveHour: (90, noon.adding(minutes: -1)))]
 

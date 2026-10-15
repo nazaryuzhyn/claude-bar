@@ -39,11 +39,13 @@ public struct MenuBarFigure: Equatable, Sendable {
     public let kind: WindowKind
     public let percent: String
     public let resetsAt: Date
+    /// Named only when there are several profiles.
+    public var profile: String? = nil
 }
 
 extension LimitsSummary {
     public var menuBarFigure: MenuBarFigure? {
-        menuBarReading.map { MenuBarFigure(kind: $0.kind, percent: Texts.percent($0.usedPercentage), resetsAt: $0.resetsAt) }
+        menuBarReading.map { MenuBarFigure(kind: $0.kind, percent: Texts.percent($0.usedPercentage), resetsAt: $0.resetsAt, profile: profile) }
     }
 
     /// The current window with the larger used share; the five-hour one on a tie.

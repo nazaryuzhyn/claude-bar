@@ -17,14 +17,25 @@ session=$(jq -r '.session_id // empty' <<<"$payload")
 file="$dir/$session.json"
 
 mkdir -p -m 700 "$root" "$dir" || exit 0
-# The sandboxed app can write into limits/ and this script runs outside the sandbox, so a
-# symlink planted there must not make it read another file.
-previous=/dev/null
-[ -f "$file" ] && [ ! -L "$file" ] && previous=$file
+# The sandboxed app can write into limits/ and this script runs outside the sandbox. A check
+# before opening could be raced, so the file is opened once without following a symlink and
+# without waiting on a FIFO, and read only if that open is a regular file.
+previous=''
+if [ -e "$file" ]; then
+    previous=$(perl -MFcntl -e 'sysopen(my $f, $ARGV[0], O_RDONLY | O_NOFOLLOW | O_NONBLOCK) or exit; -f $f or exit; read($f, my $b, 65536); print $b' "$file")
+fi
+
+# Private mode, switched on in the app: the session name Claude generated is not stored.
+private=false
+[ -e "$root/events/private-mode" ] && private=true
+# Another profile, often another account: its limits must not mix with the default one's.
+config_dir=${CLAUDE_CONFIG_DIR:-}
+config_dir=${config_dir%/}
+[ "$config_dir" == "$HOME/.claude" ] && config_dir=''
 
 # The payload goes in on stdin: on the command line a large one would exceed ARG_MAX.
 # -e: no output (nothing new to record) is a failure and leaves the file alone.
-record=$(jq -c -e --rawfile previous "$previous" '
+record=$(jq -c -e --arg previous "$previous" --argjson private "$private" --arg config_dir "$config_dir" '
     def number: if type == "number" then . else 0 end;
     . as $payload
     | ($previous | try fromjson catch {} | if type == "object" then . else {} end) as $previous
@@ -44,7 +55,10 @@ record=$(jq -c -e --rawfile previous "$previous" '
             else $cost end
         ),
         # The name Claude Code shows: set with --name or /rename, else its generated title.
-        session_name: ($payload.session_name | if type == "string" and . != "" then .[0:120] else null end),
+        session_name: (if $private then null else ($payload.session_name | if type == "string" and . != "" then .[0:120] else null end) end),
+        config_dir: (if $config_dir == "" then null else $config_dir end),
+        # Limits come only after the first API response, so until then their absence says nothing.
+        answered: (if ($payload.cost.total_api_duration_ms | number) > 0 then true else null end),
         rate_limits: (
             { five_hour: $payload.rate_limits.five_hour, seven_day: $payload.rate_limits.seven_day }
             # A window without both numbers has not started or is incomplete: leave it out.
@@ -58,6 +72,8 @@ record=$(jq -c -e --rawfile previous "$previous" '
     }
     | if .rate_limits == {} then del(.rate_limits) else . end
     | if .session_name == null then del(.session_name) else . end
+    | if .config_dir == null then del(.config_dir) else . end
+    | if .answered == null then del(.answered) else . end
     # The status line refreshes many times a minute and every write wakes ClaudeBar. A record
     # that differs only in time and cost waits until the next refresh a minute or more after
     # the last write; until then the stored cost stays behind.

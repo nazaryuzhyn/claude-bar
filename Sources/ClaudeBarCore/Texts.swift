@@ -107,6 +107,24 @@ public struct Texts: Equatable, Sendable {
     public var resetPassed: String { pick("Вікно скинулося, чекаю нових даних", "Window reset, waiting for new data") }
     public var noLimits: String { pick("Ліміти з'являться після першої відповіді Claude.", "Limits appear after Claude's first reply.") }
     public var noSessions: String { pick("Сесій немає. Запустіть claude у терміналі.", "No sessions. Run claude in a terminal.") }
+    /// The status line works but no hook event ever came: a company policy may allow only its own hooks.
+    public var noSessionEvents: String { pick("Події сесій не надходять. Можливо, налаштування компанії дозволяють лише власні хуки.", "No session events arrive. Your organization's settings may allow only its own hooks.") }
+    public var noStatusLine: String { pick("Ліміти надходять лише через status line Claude Code, а його не налаштовано. Сесії та сповіщення працюють. Увімкнути ліміти можна в Налаштуваннях.", "Limits arrive only through Claude Code's status line, which is not set up. Sessions and alerts work. You can turn limits on in Settings.") }
+    public var limitsSetting: String { pick("Ліміти", "Limits") }
+    public var showLimits: String { pick("Увімкнути", "Turn on") }
+    public var showLimitsNote: String { pick("Додасть у Claude Code status line з моделлю й текою: лише через нього Claude Code передає ліміти.", "Adds a status line with the model and folder to Claude Code: it is the only way Claude Code sends limits.") }
+    public var statusLinePending: String { pick("Status line з'явиться з наступною дією в Claude Code, ліміти — після наступної відповіді.", "The status line appears with your next action in Claude Code, limits after the next reply.") }
+    public var planReportsNoLimits: String { pick("Claude Code не передає ліміти для цього плану.", "Claude Code reports no limits for this plan.") }
+
+    /// Claude Code's estimate at API list prices, which is what a usage-billed plan pays.
+    public func costToday(_ usd: Double) -> String {
+        let amount = String(format: "$%.2f", usd)
+        return pick("Сьогодні ≈ \(amount) за цінами API", "Today ≈ \(amount) at API prices")
+    }
+
+    public func profile(_ name: String) -> String {
+        pick("Профіль Claude Code: \(name)", "Claude Code profile: \(name)")
+    }
     public var waitingHeader: String { pick("Чекають на вас", "Waiting for you") }
 
     public func moreSessions(_ count: Int) -> String {
@@ -154,7 +172,8 @@ public struct Texts: Equatable, Sendable {
         var parts: [String] = []
         if let figure {
             let reset = resetText(figure.resetsAt, now: now, calendar: calendar)
-            parts.append(pick("\(windowTitle(figure.kind)): використано \(figure.percent). \(reset)", "\(windowTitle(figure.kind)): \(figure.percent) used. \(reset)"))
+            let window = figure.profile.map { "\(windowTitle(figure.kind)) (\($0))" } ?? windowTitle(figure.kind)
+            parts.append(pick("\(window): використано \(figure.percent). \(reset)", "\(window): \(figure.percent) used. \(reset)"))
         }
         if waiting > 0 {
             parts.append(pick("чекають на вас: \(waiting)", "waiting for you: \(waiting)"))
@@ -174,6 +193,8 @@ public struct Texts: Equatable, Sendable {
     public var openSystemSettings: String { pick("Відкрити системні налаштування", "Open System Settings") }
     public var launchAtLogin: String { pick("Запускати під час входу", "Launch at login") }
     public var languageSetting: String { pick("Мова", "Language") }
+    public var privateMode: String { pick("Приватний режим", "Private mode") }
+    public var privateModeNote: String { pick("Без тексту від Claude і назв сесій у банерах, панелі та збережених файлах.", "No text from Claude and no session names in banners, the panel or stored files.") }
     public var testNotice: String { pick("Перевірити звук і банер", "Test sound and banner") }
 
     public func thresholdSetting(_ percent: Double) -> String {
@@ -190,8 +211,9 @@ public struct Texts: Equatable, Sendable {
         return pick("Ліміти оновлено: \(when)", "Limits updated: \(when)")
     }
 
-    public func loginError(_ error: Error) -> String {
-        pick("Не вдалося змінити запуск під час входу: \(error.localizedDescription)", "Could not change launch at login: \(error.localizedDescription)")
+    /// The system's own description comes in its language; only the lead-in follows the setting.
+    public func loginError(_ detail: String) -> String {
+        pick("Не вдалося змінити запуск під час входу: \(detail)", "Could not change launch at login: \(detail)")
     }
 
     // MARK: Notifications
@@ -216,6 +238,7 @@ public struct Texts: Equatable, Sendable {
         case .fiveHour: pick("Використано \(used) ліміту на 5 годин", "\(used) of the 5-hour limit used")
         case .sevenDay: pick("Використано \(used) тижневого ліміту", "\(used) of the weekly limit used")
         }
-        return NoticeText(title: title, body: resetText(reading.resetsAt, now: now, calendar: calendar))
+        let named = alert.profile.map { "\(title) (\($0))" } ?? title
+        return NoticeText(title: named, body: resetText(reading.resetsAt, now: now, calendar: calendar))
     }
 }

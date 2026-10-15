@@ -48,6 +48,19 @@ public enum SessionList {
             }
     }
 
+    /// Status line data comes in, yet no hook event was ever seen: hooks are most likely blocked
+    /// by a company policy. A session ending normally deletes its record, so "no records now" is
+    /// not enough; whether one was ever seen has to be remembered.
+    public static func hooksLookBlocked(everSawHookEvent: Bool, statusLineSeen: Bool) -> Bool {
+        !everSawHookEvent && statusLineSeen
+    }
+
+    /// Claude has answered in a session, yet no status line data exists: the status line, the only
+    /// source of limits, is not set up. It runs from a session's start, so it would have written.
+    public static func statusLineLooksMissing(events: [EventRecord], summaries: [LimitsSummary]) -> Bool {
+        summaries.isEmpty && events.contains { $0.state == .done }
+    }
+
     /// Claude Code's own name first, so a session reads the same here and there; the folder last.
     public static func displayName(of record: EventRecord, name: String? = nil) -> String {
         if let name, !name.isEmpty { return name }

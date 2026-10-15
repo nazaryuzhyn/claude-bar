@@ -33,24 +33,35 @@ public struct TransitionDetector: Sendable {
 
 public struct ThresholdAlert: Equatable, Sendable {
     public let reading: WindowReading
+    /// Named only when there are several profiles.
+    public var profile: String? = nil
+    public var configDir: String? = nil
 }
 
-/// One alert per window (see `WindowKind.sameWindowTolerance`).
+/// One alert per window of each profile (see `WindowKind.sameWindowTolerance`).
 public struct ThresholdTracker: Sendable {
-    public private(set) var alerted: [WindowKind: Date]
+    /// Reset time of the last alerted window, by `key(_:configDir:)`.
+    public private(set) var alerted: [String: Date]
 
-    public init(alerted: [WindowKind: Date] = [:]) {
+    public init(alerted: [String: Date] = [:]) {
         self.alerted = alerted
+    }
+
+    /// By the profile's full path, which a display name cannot stand in for; the kind alone for
+    /// the default profile, which keeps alerts stored before profiles existed.
+    public static func key(_ kind: WindowKind, configDir: String?) -> String {
+        configDir.map { "\(kind.rawValue)@\($0)" } ?? kind.rawValue
     }
 
     public mutating func alerts(for summary: LimitsSummary, threshold: Double) -> [ThresholdAlert] {
         WindowKind.allCases.compactMap { kind in
             guard case .current(let reading) = summary.status(of: kind), reading.usedPercentage >= threshold else { return nil }
-            if let previous = alerted[kind], abs(previous.timeIntervalSince(reading.resetsAt)) < WindowKind.sameWindowTolerance {
+            let key = Self.key(kind, configDir: summary.configDir)
+            if let previous = alerted[key], abs(previous.timeIntervalSince(reading.resetsAt)) < WindowKind.sameWindowTolerance {
                 return nil
             }
-            alerted[kind] = reading.resetsAt
-            return ThresholdAlert(reading: reading)
+            alerted[key] = reading.resetsAt
+            return ThresholdAlert(reading: reading, profile: summary.profile, configDir: summary.configDir)
         }
     }
 }

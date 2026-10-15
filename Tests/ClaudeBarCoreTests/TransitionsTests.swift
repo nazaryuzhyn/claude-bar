@@ -88,6 +88,30 @@ struct ThresholdTrackerTests {
         #expect(tracker.alerts(for: summary(fiveHour: 81, resetsAt: noon.adding(hours: 7)), threshold: 80).count == 1)
     }
 
+    @Test func aSecondProfileAppearingDoesNotRepeatTheFirstOnesAlert() {
+        var tracker = ThresholdTracker()
+        let reset = noon.adding(hours: 2)
+        let personal = limits("personal", fiveHour: (85, reset))
+        let work = limits("work", fiveHour: (88, reset), configDir: "/Users/me/.claude-work")
+        func alerts(_ records: [LimitsRecord]) -> Int {
+            LimitsAggregator.summarizeProfiles(records, now: noon, timeZone: kyiv).flatMap { tracker.alerts(for: $0, threshold: 80) }.count
+        }
+
+        let alone = alerts([personal])
+        let withWork = alerts([personal, work])
+        let again = alerts([personal, work])
+
+        #expect(alone == 1)
+        #expect(withWork == 1)
+        #expect(again == 0)
+        #expect(Set(tracker.alerted.keys) == ["fiveHour", "fiveHour@/Users/me/.claude-work"])
+    }
+
+    @Test func theDefaultProfileKeepsTheKeyStoredBeforeProfiles() {
+        #expect(ThresholdTracker.key(.fiveHour, configDir: nil) == "fiveHour")
+        #expect(ThresholdTracker.key(.sevenDay, configDir: "/Users/me/.claude-work") == "sevenDay@/Users/me/.claude-work")
+    }
+
     @Test func rememberedAlertsSurviveARestart() {
         var first = ThresholdTracker()
         _ = first.alerts(for: summary(fiveHour: 85, resetsAt: noon.adding(hours: 2)), threshold: 80)

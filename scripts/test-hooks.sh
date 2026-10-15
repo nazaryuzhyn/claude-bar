@@ -150,6 +150,37 @@ before=$(stat -f %Fm "$events")
 run hook.sh '{"session_id":"s13","hook_event_name":"PostToolUse"}'
 check "a throttled tool call leaves the events folder untouched" "$before" "$(stat -f %Fm "$events")"
 
+: >"$events/private-mode"
+run hook.sh '{"session_id":"s14","hook_event_name":"SessionStart","session_title":"Secret plan","cwd":"/Users/me/web"}'
+run hook.sh "$(jq -n --arg m 'Secret answer' '{session_id:"s14",hook_event_name:"Stop",last_assistant_message:$m}')"
+check "private mode stores no title" null "$(field "$events/s14.json" .title)"
+check "private mode stores no message" null "$(field "$events/s14.json" .message)"
+check "private mode still records the state and folder" "done /Users/me/web" "$(field "$events/s14.json" '"\(.state) \(.cwd)"')"
+rm -f "$events/private-mode"
+
+# Output goes to /dev/null rather than a capture: a hook stuck on the FIFO would leave a
+# reader holding the capture's pipe, and this harness would hang instead of failing.
+mkfifo "$events/s15.json"
+printf '%s' '{"session_id":"s15","hook_event_name":"Stop"}' | perl -e 'alarm 5; exec @ARGV' ./hook.sh >/dev/null 2>&1
+status=$?
+[ -p "$events/s15.json" ] && : <>"$events/s15.json"
+check "a FIFO in place of the record does not hang the hook" 0 "$status"
+# Reading a FIFO that is still there would block, so its type is checked first.
+check "the FIFO is replaced by the record" "regular done" "$(if [ -p "$events/s15.json" ]; then echo fifo; else echo "regular $(field "$events/s15.json" .state)"; fi)"
+
+# Limits > Turn on in Settings leaves a request that the next hook event hands to configure.sh.
+mkdir -p "$CLAUDEBAR_DIR/bin"
+printf '#!/bin/bash\necho "$@" >>"%s/configure-calls"\n' "$CLAUDEBAR_DIR" >"$CLAUDEBAR_DIR/bin/configure.sh"
+chmod 700 "$CLAUDEBAR_DIR/bin/configure.sh"
+run hook.sh '{"session_id":"s16","hook_event_name":"PostToolUse"}'
+check "without a request configure.sh is not run" no "$([ -e "$CLAUDEBAR_DIR/configure-calls" ] && echo yes || echo no)"
+: >"$events/statusline-request"
+run hook.sh '{"session_id":"s16","hook_event_name":"PostToolUse"}'
+check "a request runs configure.sh add-statusline" add-statusline "$(cat "$CLAUDEBAR_DIR/configure-calls" 2>/dev/null)"
+check "the request is removed" no "$([ -e "$events/statusline-request" ] && echo yes || echo no)"
+check "the hook still prints nothing" "" "$output"
+rm -rf "$CLAUDEBAR_DIR/bin" "$CLAUDEBAR_DIR/configure-calls"
+
 check "no temporaries are left in events" "" "$(find "$events" -name '.*' -type f)"
 check "no temporaries are left next to the folders" "" "$(find "$CLAUDEBAR_DIR" -maxdepth 1 -name '.*' -type f)"
 
@@ -224,6 +255,30 @@ ln -s "$outside/private.json" "$limits/s11.json"
 run statusline-bridge.sh '{"session_id":"s11","cost":{"total_cost_usd":2}}'
 check "bridge does not read a symlinked file" 2 "$(field "$limits/s11.json" .day_start_cost)"
 rm -rf "$outside"
+
+: >"$events/private-mode"
+run statusline-bridge.sh '{"session_id":"s12","session_name":"Secret plan","cost":{"total_cost_usd":1}}'
+check "private mode stores no session name" false "$(field "$limits/s12.json" 'has("session_name")')"
+rm -f "$events/private-mode"
+
+run statusline-bridge.sh '{"session_id":"s13","cost":{"total_cost_usd":1}}'
+check "the default profile records no config_dir" false "$(field "$limits/s13.json" 'has("config_dir")')"
+output=$(printf '%s' '{"session_id":"s13","cost":{"total_cost_usd":1}}' | CLAUDE_CONFIG_DIR=/Users/me/.claude-work/ ./statusline-bridge.sh)
+check "another profile is recorded without a trailing slash" /Users/me/.claude-work "$(field "$limits/s13.json" .config_dir)"
+
+output=$(printf '%s' '{"session_id":"s13","cost":{"total_cost_usd":1}}' | CLAUDE_CONFIG_DIR="$HOME/.claude/" ./statusline-bridge.sh)
+check "an explicit default profile records no config_dir" false "$(field "$limits/s13.json" 'has("config_dir")')"
+
+run statusline-bridge.sh '{"session_id":"s16","cost":{"total_cost_usd":0,"total_api_duration_ms":0}}'
+check "no answer yet is not recorded" false "$(field "$limits/s16.json" 'has("answered")')"
+run statusline-bridge.sh '{"session_id":"s16","cost":{"total_cost_usd":0.2,"total_api_duration_ms":2300}}'
+check "the first answer is recorded" true "$(field "$limits/s16.json" .answered)"
+
+mkfifo "$limits/s17.json"
+printf '%s' '{"session_id":"s17","cost":{"total_cost_usd":1}}' | perl -e 'alarm 5; exec @ARGV' ./statusline-bridge.sh >/dev/null 2>&1
+status=$?
+[ -p "$limits/s17.json" ] && : <>"$limits/s17.json"
+check "a FIFO in place of the limits record does not hang the bridge" 0 "$status"
 
 check "no temporaries are left in limits" "" "$(find "$limits" -name '.*' -type f)"
 check "no temporaries are left next to limits" "" "$(find "$CLAUDEBAR_DIR" -maxdepth 1 -name '.*' -type f)"

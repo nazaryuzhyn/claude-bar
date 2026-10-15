@@ -49,7 +49,7 @@ struct PanelView: View {
             section {
                 if sessions.recent.isEmpty {
                     if sessions.waiting.isEmpty {
-                        Text(model.texts.noSessions)
+                        Text(model.hooksLookBlocked ? model.texts.noSessionEvents : model.texts.noSessions)
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
@@ -69,12 +69,15 @@ struct PanelView: View {
                 HStack(alignment: .firstTextBaseline) {
                     Button(model.texts.settings) { model.showsSettings = true }
                     Spacer()
-                    Text(model.texts.updated(model.summary.lastObservedAt, now: model.now))
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                        .lineLimit(1)
-                    Spacer()
+                    // How fresh the limits are; with no status line there are none to date.
+                    if model.lastObservedAt != nil {
+                        Text(model.texts.updated(model.lastObservedAt, now: model.now))
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                            .lineLimit(1)
+                        Spacer()
+                    }
                     Button(model.texts.quit) { NSApplication.shared.terminate(nil) }
                 }
                 .buttonStyle(ActionButtonStyle())
@@ -84,15 +87,35 @@ struct PanelView: View {
 
     @ViewBuilder
     private var limits: some View {
-        let summary = model.summary
-        if summary.fiveHour == nil, summary.sevenDay == nil {
-            Text(model.texts.noLimits)
+        if model.summaries.isEmpty {
+            Text(model.statusLineLooksMissing ? model.texts.noStatusLine : model.texts.noLimits)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-        } else {
-            ForEach(WindowKind.allCases, id: \.self) { kind in
-                if let status = summary.status(of: kind) {
-                    LimitRow(kind: kind, status: status, texts: model.texts, now: model.now, calendar: model.calendar)
+        }
+        ForEach(model.summaries) { summary in
+            if let profile = summary.profile {
+                Text(model.texts.profile(profile))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, summary.id == model.summaries.first?.id ? 0 : 8)
+            }
+            if summary.planReportsNoLimits {
+                // Usage-billed plans have no windows to show, but the day's spend is what they pay.
+                Text(model.texts.costToday(summary.costToday))
+                    .font(.system(size: 13, weight: .medium))
+                    .monospacedDigit()
+                Text(model.texts.planReportsNoLimits)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            } else if summary.fiveHour == nil, summary.sevenDay == nil {
+                Text(model.texts.noLimits)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(WindowKind.allCases, id: \.self) { kind in
+                    if let status = summary.status(of: kind) {
+                        LimitRow(kind: kind, status: status, texts: model.texts, now: model.now, calendar: model.calendar)
+                    }
                 }
             }
         }

@@ -23,6 +23,14 @@ IFS=$'\x1f' read -r now session event type < <(
 [[ "$session" =~ ^[A-Za-z0-9_-]+$ ]] || exit 0
 file="$dir/$session.json"
 
+# The app asked for a status line (Settings, Limits > Turn on) but cannot edit Claude Code's
+# settings from its sandbox, so the next hook event does. The marker carries no data: only
+# ClaudeBar's own status line is ever added, and only where there is none.
+if [ -e "$dir/statusline-request" ]; then
+    rm -f "$dir/statusline-request"
+    [ -x "$root/bin/configure.sh" ] && "$root/bin/configure.sh" add-statusline >/dev/null 2>&1
+fi
+
 case "$event" in
     SessionEnd) rm -f "$file"; exit 0 ;;
     SessionStart | UserPromptSubmit | PostToolUse) state=working ;;
@@ -42,12 +50,14 @@ previous=''
 previous_state=''
 previous_at=0
 previous_host=''
-# The sandboxed app can write into events/ and this hook runs outside the sandbox, so a
-# symlink planted there must not make it read another file. One read gives the fields the
-# checks below need, cleaned so none can hold a separator, and then the record itself.
-if [ -f "$file" ] && [ ! -L "$file" ]; then
+# The sandboxed app can write into events/ and this hook runs outside the sandbox. A check
+# before opening could be raced, so the file is opened once without following a symlink and
+# without waiting on a FIFO, and read only if that open is a regular file. One parse then gives
+# the fields the checks below need, cleaned so none can hold a separator, and the record itself.
+if [ -e "$file" ]; then
+    raw=$(perl -MFcntl -e 'sysopen(my $f, $ARGV[0], O_RDONLY | O_NOFOLLOW | O_NONBLOCK) or exit; -f $f or exit; read($f, my $b, 65536); print $b' "$file")
     { IFS=$'\x1f' read -r previous_state previous_at previous_host; IFS= read -r previous; } < <(
-        jq -nrc --rawfile previous "$file" '
+        jq -nrc --arg previous "$raw" '
             $previous | try fromjson catch {} | if type == "object" then . else {} end
             | "\(.state | if . == "working" or . == "waiting" or . == "done" then . else "" end)\u001f\(.at | if type == "number" and . >= 0 then floor else 0 end)\u001f\(.host | if type == "string" then gsub("[^A-Za-z0-9.-]"; "") else "" end)",
               tojson
@@ -56,6 +66,10 @@ if [ -f "$file" ] && [ ! -L "$file" ]; then
 fi
 [ -n "$previous" ] || previous='{}'
 [[ "$previous_at" =~ ^[0-9]+$ ]] || previous_at=0
+
+# Private mode, switched on in the app: nothing Claude wrote or titled is stored.
+private=false
+[ -e "$dir/private-mode" ] && private=true
 
 # Tool calls come in bursts. A session already shown as working only needs its time
 # refreshed now and then, and every write wakes ClaudeBar.
@@ -92,6 +106,7 @@ record=$(jq -c -e \
     --arg event "$event" \
     --arg project "${CLAUDE_PROJECT_DIR:-}" \
     --arg host "$host" \
+    --argjson private "$private" \
     --argjson at "$now" '
     def clip: gsub("[\r\n]+"; " ") | .[0:150];
     . as $payload
@@ -102,10 +117,15 @@ record=$(jq -c -e \
         at: $at,
         # The project folder names the session; the payload cwd follows every cd the agent makes.
         cwd: (if $project != "" then $project else ($payload.cwd // $previous.cwd) end),
-        title: (if $event == "SessionStart" then ($payload.session_title // $previous.title) else $previous.title end),
+        title: (
+            if $private then null
+            elif $event == "SessionStart" then ($payload.session_title // $previous.title)
+            else $previous.title end
+        ),
         host: (if $host != "" then $host else $previous.host end),
         message: (
-            if $event == "Stop" then (($payload.last_assistant_message // "") | clip)
+            if $private then null
+            elif $event == "Stop" then (($payload.last_assistant_message // "") | clip)
             elif $event == "Notification" then (($payload.message // "") | clip)
             else null end
         )

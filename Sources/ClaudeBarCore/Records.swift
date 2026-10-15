@@ -40,6 +40,10 @@ public struct LimitsRecord: Decodable, Sendable, Equatable {
     public let dayStartCost: Double
     /// The name Claude Code shows for the session; absent until one is set or generated.
     public let sessionName: String?
+    /// `CLAUDE_CONFIG_DIR` of the session when set: another profile, often another account.
+    public var configDir: String? = nil
+    /// Claude Code has had an API response in this session; rate limits never come before one.
+    public var answered: Bool? = nil
 
     enum CodingKeys: String, CodingKey {
         case sessionID = "session_id"
@@ -49,6 +53,8 @@ public struct LimitsRecord: Decodable, Sendable, Equatable {
         case day
         case dayStartCost = "day_start_cost"
         case sessionName = "session_name"
+        case configDir = "config_dir"
+        case answered
     }
 }
 
@@ -74,5 +80,12 @@ public struct EventRecord: Decodable, Sendable, Equatable {
         case event
         case at
         case host
+    }
+}
+
+extension EventRecord {
+    /// Without anything Claude wrote or titled, for private mode: the folder then names the session.
+    public var redacted: EventRecord {
+        EventRecord(sessionID: sessionID, state: state, cwd: cwd, title: nil, message: nil, event: event, at: at, host: host)
     }
 }

@@ -71,6 +71,20 @@ struct SessionListTests {
         #expect(Texts(.ukrainian).sessionNotice(event("a", .done, cwd: "/x/web"), name: names["a"]).title == "Fix flaky login test: відповідь готова")
     }
 
+    @Test func aMissingStatusLineShowsOnceClaudeHasAnswered() {
+        let summaries = LimitsAggregator.summarizeProfiles([limits("a")], now: noon, timeZone: kyiv)
+
+        #expect(SessionList.statusLineLooksMissing(events: [event("a", .done)], summaries: []))
+        #expect(!SessionList.statusLineLooksMissing(events: [event("a", .working)], summaries: []))
+        #expect(!SessionList.statusLineLooksMissing(events: [event("a", .done)], summaries: summaries))
+    }
+
+    @Test func hooksLookBlockedOnlyWhenNoEventWasEverSeen() {
+        #expect(SessionList.hooksLookBlocked(everSawHookEvent: false, statusLineSeen: true))
+        #expect(!SessionList.hooksLookBlocked(everSawHookEvent: true, statusLineSeen: true))
+        #expect(!SessionList.hooksLookBlocked(everSawHookEvent: false, statusLineSeen: false))
+    }
+
     @Test func nameIsTitleThenFolderThenShortID() {
         #expect(SessionList.displayName(of: event("a", .done, cwd: "/x/api-gateway", title: "Add rate limiting")) == "Add rate limiting")
         #expect(SessionList.displayName(of: event("a", .done, cwd: "/x/api-gateway", title: "")) == "api-gateway")

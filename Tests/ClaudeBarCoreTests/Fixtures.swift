@@ -13,14 +13,16 @@ func limits(
     cost: Double = 0,
     day: String = "2026-10-13",
     dayStartCost: Double = 0,
-    sessionName: String? = nil
+    sessionName: String? = nil,
+    configDir: String? = nil,
+    answered: Bool? = nil
 ) -> LimitsRecord {
     let rateLimits: RateLimits? = fiveHour == nil && sevenDay == nil ? nil : RateLimits(
         fiveHour: fiveHour.map { LimitWindow(usedPercentage: $0.0, resetsAt: $0.1) },
         sevenDay: sevenDay.map { LimitWindow(usedPercentage: $0.0, resetsAt: $0.1) }
     )
     return LimitsRecord(sessionID: session, observedAt: observedAt, rateLimits: rateLimits, cost: cost, day: day,
-                        dayStartCost: dayStartCost, sessionName: sessionName)
+                        dayStartCost: dayStartCost, sessionName: sessionName, configDir: configDir, answered: answered)
 }
 
 func event(

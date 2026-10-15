@@ -29,8 +29,9 @@ struct ClaudeBarApp: App {
     }
 }
 
-/// Renders the panel and the menu bar label from the current data to PNG files, for reviewing
-/// the design without screen recording access. AppKit-backed controls such as buttons do not render.
+/// Renders the panel, the settings page and the menu bar label from the current data to PNG
+/// files, for reviewing the design without screen recording access. AppKit-backed controls
+/// (switches, the stepper, the language menu) render as placeholders.
 @MainActor
 enum Snapshot {
     static func render(to folder: URL) {
@@ -40,6 +41,7 @@ enum Snapshot {
         for (name, scheme, background) in [("light", ColorScheme.light, Color(white: 0.95)), ("dark", .dark, Color(white: 0.17))] {
             write(PanelView(model: model, fitsWindow: false).background(background).environment(\.colorScheme, scheme), to: folder.appendingPathComponent("panel-\(name).png"))
             write(MenuBarLabel(model: model).padding(6).background(background).environment(\.colorScheme, scheme), to: folder.appendingPathComponent("label-\(name).png"))
+            write(SettingsPage(model: model) {}.frame(width: 320).background(background).environment(\.colorScheme, scheme), to: folder.appendingPathComponent("settings-\(name).png"))
         }
     }
 

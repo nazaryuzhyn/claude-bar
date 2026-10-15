@@ -125,6 +125,23 @@ struct TextsTests {
         #expect(en.paceStatus(ahead) == "15% ahead of pace")
     }
 
+    @Test func corporateWording() {
+        #expect(uk.costToday(4.126) == "Сьогодні ≈ $4.13 за цінами API")
+        #expect(en.costToday(0) == "Today ≈ $0.00 at API prices")
+        #expect(en.profile(".claude-work") == "Claude Code profile: .claude-work")
+        #expect(uk.planReportsNoLimits == "Claude Code не передає ліміти для цього плану.")
+        #expect(en.noStatusLine == "Limits arrive only through Claude Code's status line, which is not set up. Sessions and alerts work. You can turn limits on in Settings.")
+    }
+
+    @Test func aNamedProfileShowsInTheAlertAndForVoiceOver() {
+        let reading = WindowReading(kind: .fiveHour, usedPercentage: 85, resetsAt: noon.adding(hours: 2), observedAt: noon)
+        let alert = ThresholdAlert(reading: reading, profile: ".claude-work", configDir: "/Users/me/.claude-work")
+        let figure = MenuBarFigure(kind: .fiveHour, percent: "85%", resetsAt: noon.adding(hours: 2), profile: ".claude-work")
+
+        #expect(en.thresholdNotice(alert, now: noon, calendar: calendar).title == "85% of the 5-hour limit used (.claude-work)")
+        #expect(en.menuBarDescription(figure, waiting: 0, now: noon, calendar: calendar) == "5 hours (.claude-work): 85% used. Resets at 14:00, in 2 h")
+    }
+
     @Test func menuBarDescriptionNamesTheWindowAndTheWaiting() {
         let figure = MenuBarFigure(kind: .sevenDay, percent: "14%", resetsAt: noon.adding(hours: 69))
 

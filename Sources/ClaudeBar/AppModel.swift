@@ -14,11 +14,14 @@ final class AppModel {
         static let threshold = "thresholdPercent"
         static let alerted = "thresholdAlerted"
         static let language = "language"
+        static let privateMode = "privateMode"
+        static let sawHookEvent = "sawHookEvent"
     }
 
-    private(set) var summary = LimitsSummary.empty
+    /// One per Claude Code profile, the default one first.
+    private(set) var summaries: [LimitsSummary] = []
     private(set) var rows: [SessionRow] = []
-    /// Observation skips an equal value, but `summary` changes with every limits write (its
+    /// Observation skips an equal value, but `summaries` change with every limits write (their
     /// `lastObservedAt`). Kept apart, so the menu bar label redraws only when what it shows changes.
     private(set) var menuBarFigure: MenuBarFigure?
     private(set) var waitingCount = 0
@@ -26,7 +29,14 @@ final class AppModel {
     private(set) var now = Date()
     private(set) var lastEventAt: Date?
     private(set) var launchAtLogin = SMAppService.mainApp.status == .enabled
-    private(set) var loginError: String?
+    /// The system's description; the view adds the lead-in in the current language.
+    private(set) var loginErrorDetail: String?
+    /// The panel's hint that a company policy may block the hooks.
+    private(set) var hooksLookBlocked = false
+    /// The panel's note that limits need a status line, which this setup has none of.
+    private(set) var statusLineLooksMissing = false
+    /// Settings asked for a status line and the next hook event has not added it yet.
+    private(set) var statusLineRequested = false
     /// Lives here rather than in the view: Command Line Tools cannot expand `@State` (see ClaudeBarApp).
     var showsSettings = false
 
@@ -52,6 +62,17 @@ final class AppModel {
         }
     }
     private(set) var texts: Texts
+
+    var privateMode: Bool {
+        didSet {
+            defaults.set(privateMode, forKey: Keys.privateMode)
+            PrivateMode.apply(privateMode, events: directory.events, limits: directory.limits)
+            if privateMode { notifier.removeSessionNotices() }
+            reload()
+        }
+    }
+
+    var lastObservedAt: Date? { summaries.compactMap(\.lastObservedAt).max() }
 
     let notifier = Notifier()
     /// Follows a time zone change while the app runs for days.
@@ -83,6 +104,7 @@ final class AppModel {
         let language = defaults.string(forKey: Keys.language).flatMap(Language.init(rawValue:)) ?? Language.preferred()
         self.language = language
         texts = Texts(language)
+        privateMode = defaults.bool(forKey: Keys.privateMode)
         tracker = ThresholdTracker(alerted: Self.alerted(from: defaults))
         limitsFolder = RecordFolder(url: directory.limits)
         eventsFolder = RecordFolder(url: directory.events)
@@ -92,6 +114,7 @@ final class AppModel {
         Task {
             await notifier.refreshPermission()
             prepareFolders()
+            PrivateMode.apply(privateMode, events: directory.events, limits: directory.limits)
             watchFolders()
             observeSystemChanges()
             reload()
@@ -110,14 +133,25 @@ final class AppModel {
             logger.error("Skipped an unreadable record: \(name, privacy: .public)")
         }
 
-        summary = LimitsAggregator.summarize(limits.records, now: now)
-        let names = SessionList.names(from: limits.records)
-        rows = SessionList.rows(from: events.records, now: now, names: names)
-        lastEventAt = events.records.map(\.at).max()
-        menuBarFigure = summary.menuBarFigure
+        summaries = LimitsAggregator.summarizeProfiles(limits.records, now: now)
+        // A record can still hold Claude's text when a script wrote it while private mode was
+        // being switched on; it is hidden here and stripped from disk.
+        if privateMode, PrivateMode.needsStripping(events: events.records, limits: limits.records) {
+            PrivateMode.strip(events: directory.events, limits: directory.limits)
+        }
+        let (eventRecords, names) = PrivateMode.shown(events: events.records, limits: limits.records, enabled: privateMode)
+        rows = SessionList.rows(from: eventRecords, now: now, names: names)
+        lastEventAt = eventRecords.map(\.at).max()
+        if !eventRecords.isEmpty, !defaults.bool(forKey: Keys.sawHookEvent) {
+            defaults.set(true, forKey: Keys.sawHookEvent)
+        }
+        hooksLookBlocked = SessionList.hooksLookBlocked(everSawHookEvent: defaults.bool(forKey: Keys.sawHookEvent), statusLineSeen: lastObservedAt != nil)
+        statusLineLooksMissing = SessionList.statusLineLooksMissing(events: eventRecords, summaries: summaries)
+        statusLineRequested = statusLineLooksMissing && StatusLineRequest.isPending(events: directory.events)
+        menuBarFigure = LimitsAggregator.menuBarFigure(of: summaries)
         waitingCount = rows.filter { $0.state == .waiting }.count
 
-        let notices = detector.notices(in: events.records, now: now)
+        let notices = detector.notices(in: eventRecords, now: now)
         logger.debug("Read \(limits.records.count) limits and \(events.records.count) sessions; \(notices.count) to announce")
         let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         for record in notices {
@@ -155,12 +189,12 @@ final class AppModel {
     }
 
     private func announceThresholds(now: Date) {
-        let alerts = tracker.alerts(for: summary, threshold: threshold)
+        let alerts = summaries.flatMap { tracker.alerts(for: $0, threshold: threshold) }
         guard !alerts.isEmpty else { return }
-        defaults.set(Dictionary(uniqueKeysWithValues: tracker.alerted.map { ($0.key.rawValue, $0.value.timeIntervalSince1970) }), forKey: Keys.alerted)
+        defaults.set(tracker.alerted.mapValues(\.timeIntervalSince1970), forKey: Keys.alerted)
         for alert in alerts {
             notifier.announce(
-                id: "threshold:\(alert.reading.kind.rawValue):\(Int(alert.reading.resetsAt.timeIntervalSince1970))",
+                id: "threshold:\(ThresholdTracker.key(alert.reading.kind, configDir: alert.configDir)):\(Int(alert.reading.resetsAt.timeIntervalSince1970))",
                 text: texts.thresholdNotice(alert, now: now, calendar: calendar),
                 sound: .waiting,
                 soundsEnabled: soundsEnabled,
@@ -176,11 +210,16 @@ final class AppModel {
             } else {
                 try SMAppService.mainApp.unregister()
             }
-            loginError = nil
+            loginErrorDetail = nil
         } catch {
-            loginError = texts.loginError(error)
+            loginErrorDetail = error.localizedDescription
         }
         launchAtLogin = SMAppService.mainApp.status == .enabled
+    }
+
+    func requestStatusLine() {
+        StatusLineRequest.send(events: directory.events)
+        statusLineRequested = true
     }
 
     func sendTest() {
@@ -195,7 +234,8 @@ final class AppModel {
 
     private func scheduleWake(now: Date) {
         wakeTimer?.invalidate()
-        var delay = WakePlanner.nextWake(summary: summary, rows: rows, now: now).timeIntervalSince(now)
+        let wakes = (summaries.isEmpty ? [.empty] : summaries).map { WakePlanner.nextWake(summary: $0, rows: rows, now: now) }
+        var delay = (wakes.min() ?? now).timeIntervalSince(now)
         // A folder that could not be watched yet (not created before launch) is retried soon.
         if watchers.count < 2 { delay = min(delay, 60) }
         // A tolerance lets macOS coalesce this wake with others; a minute late is invisible here.
@@ -207,6 +247,8 @@ final class AppModel {
         FolderCleanup.removeExpired(in: directory.limits, now: Date())
         FolderCleanup.removeExpired(in: directory.events, now: Date())
         prepareFolders()
+        // A recreated events/ folder has lost the marker.
+        PrivateMode.apply(privateMode, events: directory.events, limits: directory.limits)
         watchFolders()
         launchAtLogin = SMAppService.mainApp.status == .enabled
         reload()
@@ -264,14 +306,8 @@ final class AppModel {
         return timer
     }
 
-    private static func alerted(from defaults: UserDefaults) -> [WindowKind: Date] {
+    private static func alerted(from defaults: UserDefaults) -> [String: Date] {
         let stored = defaults.dictionary(forKey: Keys.alerted) as? [String: Double] ?? [:]
-        var alerted: [WindowKind: Date] = [:]
-        for (key, seconds) in stored {
-            if let kind = WindowKind(rawValue: key) {
-                alerted[kind] = Date(timeIntervalSince1970: seconds)
-            }
-        }
-        return alerted
+        return stored.mapValues(Date.init(timeIntervalSince1970:))
     }
 }

@@ -56,6 +56,15 @@ final class Notifier: NSObject {
         await refreshPermission()
     }
 
+    /// Banners already delivered keep Claude's text in Notification Center; private mode takes them back.
+    func removeSessionNotices() {
+        guard let center else { return }
+        Task {
+            let ids = await center.deliveredNotifications().map(\.request.identifier).filter { $0.hasPrefix("session:") }
+            center.removeDeliveredNotifications(withIdentifiers: ids)
+        }
+    }
+
     /// The permission is read again for every notice: it can change in System Settings while the
     /// app runs, and `add` reports success even when banners are not allowed.
     func announce(id: String, text: NoticeText, sound kind: SoundKind, soundsEnabled: Bool, bannersEnabled: Bool) {

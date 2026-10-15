@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-./configure.sh uninstall
+./configure.sh uninstall-all
 
 if pgrep -x ClaudeBar >/dev/null; then
     pkill -x ClaudeBar

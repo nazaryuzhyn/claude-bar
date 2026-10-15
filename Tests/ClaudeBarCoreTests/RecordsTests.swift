@@ -32,6 +32,32 @@ struct RecordsTests {
         """)
 
         #expect(record.rateLimits == nil)
+        #expect(record.configDir == nil)
+    }
+
+    @Test func limitsRecordNamesItsProfile() throws {
+        let record = try decode(LimitsRecord.self, """
+        {"session_id": "abc", "observed_at": 1760352000, "cost": 0, "day": "2026-10-13", "day_start_cost": 0,
+         "config_dir": "/Users/me/.claude-work"}
+        """)
+
+        #expect(record.configDir == "/Users/me/.claude-work")
+    }
+
+    @Test func limitsRecordKnowsWhetherClaudeAnswered() throws {
+        let record = try decode(LimitsRecord.self, """
+        {"session_id": "abc", "observed_at": 1760352000, "cost": 0, "day": "2026-10-13", "day_start_cost": 0, "answered": true}
+        """)
+
+        #expect(record.answered == true)
+    }
+
+    @Test func redactedDropsWhatClaudeWroteOrTitled() {
+        let record = event("a", .done, cwd: "/x/web", title: "Secret plan", message: "Secret answer").redacted
+
+        #expect(record.title == nil)
+        #expect(record.message == nil)
+        #expect(SessionList.displayName(of: record) == "web")
     }
 
     @Test func limitsRecordWithOneWindow() throws {
