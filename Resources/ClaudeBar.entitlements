@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Sandboxed with no network entitlement. Only the two data folders are writable: bin/
+         holds the hook that Claude Code runs outside the sandbox, so the app must not reach it. -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+    <key>com.apple.security.temporary-exception.files.home-relative-path.read-write</key>
+    <array>
+        <string>/Library/Application Support/ClaudeBar/limits/</string>
+        <string>/Library/Application Support/ClaudeBar/events/</string>
+    </array>
+</dict>
+</plist>

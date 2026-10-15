@@ -1,0 +1,14 @@
+# Local working notes: design spec, plan and worklog stay on the author's machine.
+/docs/
+
+# SwiftPM and Xcode build output
+.build/
+.swiftpm/
+DerivedData/
+*.xcodeproj/
+xcuserdata/
+
+# Editors and macOS
+.idea/
+.vscode/
+.DS_Store
